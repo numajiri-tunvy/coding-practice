@@ -33,4 +33,5 @@ def main():
     cv2.imshow("dst_img", dst_img)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+    cv2.imwrite("circle_pattern.png", img)
 main()
