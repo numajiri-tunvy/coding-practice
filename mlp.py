@@ -6,15 +6,18 @@ import torchvision
 from sklearn.model_selection import train_test_split
 import cv2
 
+# デバイス設定
+device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
+print("using device: ", device)
+
 def main():
     # データダウンロード
-    transform = transforms.ToTensor()
     dataset_train = datasets.MNIST(root='/tmp', train=True, download=True, transform=torchvision.transforms.ToTensor())
     dataset_test = datasets.MNIST(root='/tmp', train=False, download=True, transform=torchvision.transforms.ToTensor())
     
     # データをtrainとtestに分ける
-    N_train = 1000
-    N_test = 500
+    N_train = 10000
+    N_test = 5000
     X_train =dataset_train.data.numpy()[:N_train]/255
     y_train = dataset_train.targets.numpy()[:N_train]
     X_test = dataset_test.data.numpy()[:N_test]/255
@@ -29,13 +32,13 @@ def main():
     X_valid_flatten = X_valid.reshape(X_valid.shape[0], imgh*imgw)
     X_test_flatten = X_test.reshape(X_test.shape[0], imgh*imgw)
 
-    #データをtorch.tensorに変換
-    X_train_torch = torch.tensor(X_train_flatten, dtype=torch.float)
-    X_valid_torch = torch.tensor(X_valid_flatten, dtype=torch.float)
-    X_test_torch = torch.tensor(X_test_flatten, dtype=torch.float)
-    y_train_torch = torch.tensor(y_train, dtype=torch.long) # 0-9のラベル
-    y_valid_torch = torch.tensor(y_valid, dtype=torch.long)
-    y_test_torch = torch.tensor(y_test, dtype=torch.long)
+    #データをtorch.tensorに変換してGPUに転送
+    X_train_torch = torch.tensor(X_train_flatten, dtype=torch.float).to(device)
+    X_valid_torch = torch.tensor(X_valid_flatten, dtype=torch.float).to(device)
+    X_test_torch = torch.tensor(X_test_flatten, dtype=torch.float).to(device)
+    y_train_torch = torch.tensor(y_train, dtype=torch.long).to(device) # 0-9のラベル
+    y_valid_torch = torch.tensor(y_valid, dtype=torch.long).to(device)
+    y_test_torch = torch.tensor(y_test, dtype=torch.long).to(device)
 
     # パラメータ初期設定
     torch.manual_seed(0)
@@ -58,14 +61,15 @@ def main():
         torch.nn.Linear(512, 256),
         torch.nn.ReLU(),
         torch.nn.Linear(256, 10)
-    )
+    ).to(device)
+
 
     # 損失関数と最適化器を定義
-    loss_fn = torch.nn.CrossEntropyLoss()
+    loss_fn = torch.nn.CrossEntropyLoss(reduction="mean")
     optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
 
     #モデルを訓練
-    EPOCH = 100
+    EPOCH = 512
     for epoch in range(EPOCH):
         train_loss = 0
         train_correct = 0
@@ -74,6 +78,7 @@ def main():
             _, predicted = torch.max(y_pred.data, 1)
             # 損失を計算
             loss = loss_fn(y_pred, y)
+            train_loss += loss.item()*len(y)
             # 勾配を計算
             optimizer.zero_grad()
             loss.backward()
@@ -82,7 +87,8 @@ def main():
             # 正解数
             train_correct += (predicted == y).sum().item()
         train_acc = train_correct / len(train_loader.dataset)
-        print(f"Epoch {epoch+1}/{EPOCH}, Loss: {train_loss/len(train_loader.dataset)}, Accuracy: {train_acc}")
+        mean_train_loss = train_loss / len(train_loader.dataset)
+        #print(f"Epoch {epoch+1}/{EPOCH}, Loss: {mean_train_loss}, Accuracy: {train_acc}")
     
         # モデルを検証
         model.eval()
@@ -92,7 +98,7 @@ def main():
             _, predicted = torch.max(y_pred.data, 1)
             valid_correct += (predicted == y).sum().item()
         valid_acc = valid_correct / len(valid_loader.dataset)
-        print(f"Test Accuracy: {valid_acc}")
+        #print(f"Test Accuracy: {valid_acc}")
 
         model.train()
 
@@ -109,7 +115,7 @@ def main():
     print(f"正解ラベル: {sample_label}")
     print(f"モデルの予測結果: {predicted_label}")
 
-    cv2.imshow("sample_img", sample_img.numpy().reshape(28, 28))
+    cv2.imshow("sample_img", sample_img.cpu().numpy().reshape(28, 28))
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     
